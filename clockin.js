@@ -35,39 +35,47 @@ function formatPhoneNumber(phone) {
 }
 
 // ➤ Clock-in Endpoint
-app.post('/clockin', async (req, res) => {
-  const squareId = req.body.square_id;
-  if (!squareId) return res.status(400).send('Square ID is required.');
+app.post('/webhook', async (req, res) => {
+  const data = req.body;
+  fs.appendFileSync('square_webhook_log.txt', JSON.stringify(data, null, 2) + '\n');
 
   try {
-    const connection = await mysql.createConnection(dbConfig);
+    const eventType = data.type;
+    const teamMemberId = data?.data?.object?.shift?.team_member_id;
 
-    // Find user by square_id
-    const [rows] = await connection.execute(
-      'SELECT id FROM users WHERE square_id = ?',
-      [squareId]
-    );
+    if (eventType === 'labor.shift.created' || eventType === 'labor.shift.updated') {
+      const connection = await mysql.createConnection(dbConfig);
 
-    if (rows.length === 0) {
+      // Look up the user by square_id
+      const [rows] = await connection.execute(
+        'SELECT id FROM users WHERE square_id = ?',
+        [teamMemberId]
+      );
+
+      if (rows.length > 0) {
+        const userId = rows[0].id;
+
+        // Insert clock-in (if not already in today's schedule)
+        await connection.execute(
+          'INSERT INTO schedule (user_id, date, time_in) VALUES (?, CURDATE(), CURTIME())',
+          [userId]
+        );
+
+        console.log(`✅ Clock-in recorded for user_id ${userId}`);
+      } else {
+        console.log(`⚠️ No user found with square_id ${teamMemberId}`);
+      }
+
       await connection.end();
-      return res.status(404).send('User not found for given Square ID.');
     }
 
-    const userId = rows[0].id;
-
-    // Insert clock-in record into schedule table
-    await connection.execute(
-      'INSERT INTO schedule (user_id, date, time_in) VALUES (?, CURDATE(), CURTIME())',
-      [userId]
-    );
-
-    await connection.end();
-    res.send('✅ Clock-in recorded successfully.');
+    res.sendStatus(200);
   } catch (err) {
-    console.error('❌ Clock-in error:', err.message);
-    res.status(500).send('Error processing clock-in.');
+    console.error('❌ Webhook error:', err.message);
+    res.sendStatus(500);
   }
 });
+
 
 // ➤ Webhook: New Employee Added from Square
 app.post('/webhook', async (req, res) => {
