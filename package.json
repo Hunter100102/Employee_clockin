@@ -1,0 +1,20 @@
+{
+  "name": "employee_clockin",
+  "version": "1.0.0",
+  "description": "",
+  "main": "clockin.js",
+  "scripts": {
+    "start": "node clockin.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.9.0",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "express-session": "^1.18.1",
+    "mysql2": "^3.14.1"
+  }
+}
