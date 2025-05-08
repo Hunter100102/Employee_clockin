@@ -1,3 +1,4 @@
+// Updated Node.js clock-in and webhook logic
 require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2/promise');
@@ -25,54 +26,52 @@ const dbConfig = {
   database: 'hookahbar_db'
 };
 
-// Helper: Call Square API
-async function squareApiRequest(endpoint) {
-  const url = `https://connect.squareup.com/v2/${endpoint}`;
-  const response = await axios.get(url, {
-    headers: {
-      'Square-Version': '2024-04-18',
-      'Authorization': `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
-      'Content-Type': 'application/json'
-    }
-  });
-  return response.data;
+// ➤ Helper to format phone number
+function formatPhoneNumber(phone) {
+  if (phone.startsWith('+1') && phone.length === 12) {
+    return `${phone.slice(2, 5)}-${phone.slice(5, 8)}-${phone.slice(8)}`;
+  }
+  return phone;
 }
 
 // ➤ Clock-in Endpoint
 app.post('/clockin', async (req, res) => {
-  if (!req.session.user_id) {
-    return res.status(401).send('User not logged in.');
-  }
-
-  const userId = req.session.user_id;
+  const squareId = req.body.square_id;
+  if (!squareId) return res.status(400).send('Square ID is required.');
 
   try {
-    const response = await squareApiRequest('team-members');
-    const activeEmployee = response.team_members.find(member => member.status === 'ACTIVE');
+    const connection = await mysql.createConnection(dbConfig);
 
-    if (activeEmployee) {
-      const connection = await mysql.createConnection(dbConfig);
-      await connection.execute(
-        "INSERT INTO time_clock (users_id, time_in, date) VALUES (?, NOW(), CURDATE())",
-        [userId]
-      );
+    // Find user by square_id
+    const [rows] = await connection.execute(
+      'SELECT id FROM users WHERE square_id = ?',
+      [squareId]
+    );
+
+    if (rows.length === 0) {
       await connection.end();
-
-      res.send(`Clock-in successful for ${activeEmployee.given_name}`);
-    } else {
-      res.send("No active employee found.");
+      return res.status(404).send('User not found for given Square ID.');
     }
-  } catch (error) {
-    console.error('❌ Clock-in error:', error.message);
-    res.status(500).send("Error clocking in.");
+
+    const userId = rows[0].id;
+
+    // Insert clock-in record into schedule table
+    await connection.execute(
+      'INSERT INTO schedule (user_id, date, time_in) VALUES (?, CURDATE(), CURTIME())',
+      [userId]
+    );
+
+    await connection.end();
+    res.send('✅ Clock-in recorded successfully.');
+  } catch (err) {
+    console.error('❌ Clock-in error:', err.message);
+    res.status(500).send('Error processing clock-in.');
   }
 });
 
 // ➤ Webhook: New Employee Added from Square
 app.post('/webhook', async (req, res) => {
   const data = req.body;
-
-  // Optional logging
   fs.appendFileSync('new_employee_webhook_log.txt', JSON.stringify(data, null, 2) + '\n');
 
   try {
@@ -81,16 +80,28 @@ app.post('/webhook', async (req, res) => {
     if (teamMember) {
       const name = `${teamMember.given_name} ${teamMember.family_name}`;
       const email = teamMember.email_address || null;
+      const phone = formatPhoneNumber(teamMember.phone_number || '');
       const squareId = teamMember.id;
 
       const connection = await mysql.createConnection(dbConfig);
-      await connection.execute(
-        "INSERT INTO users (name, email, square_id, user_type) VALUES (?, ?, ?, 1)",
-        [name, email, squareId]
-      );
-      await connection.end();
 
-      console.log(`✅ New employee inserted: ${name}`);
+      // Check if user already exists
+      const [existing] = await connection.execute(
+        'SELECT id FROM users WHERE square_id = ?',
+        [squareId]
+      );
+
+      if (existing.length === 0) {
+        await connection.execute(
+          'INSERT INTO users (name, email, phone_number, square_id, user_type) VALUES (?, ?, ?, ?, 1)',
+          [name, email, phone, squareId]
+        );
+        console.log(`✅ New employee inserted: ${name}`);
+      } else {
+        console.log('ℹ️ Employee already exists.');
+      }
+
+      await connection.end();
     }
 
     res.sendStatus(200);
