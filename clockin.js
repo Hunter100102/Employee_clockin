@@ -1,4 +1,3 @@
-// Updated Node.js clock-in and webhook logic
 require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2/promise');
@@ -18,12 +17,12 @@ app.use(session({
   saveUninitialized: true
 }));
 
-// MySQL connection config
+// MySQL connection config from .env
 const dbConfig = {
-  host: 'localhost',
-  user: 'root',
-  password: '',
-  database: 'hookahbar_db'
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME
 };
 
 // ➤ Helper to format phone number
@@ -34,7 +33,7 @@ function formatPhoneNumber(phone) {
   return phone;
 }
 
-// ➤ Clock-in Endpoint
+// ➤ Webhook for clock-in via Square
 app.post('/webhook', async (req, res) => {
   const data = req.body;
   fs.appendFileSync('square_webhook_log.txt', JSON.stringify(data, null, 2) + '\n');
@@ -46,7 +45,6 @@ app.post('/webhook', async (req, res) => {
     if (eventType === 'labor.shift.created' || eventType === 'labor.shift.updated') {
       const connection = await mysql.createConnection(dbConfig);
 
-      // Look up the user by square_id
       const [rows] = await connection.execute(
         'SELECT id FROM users WHERE square_id = ?',
         [teamMemberId]
@@ -54,13 +52,10 @@ app.post('/webhook', async (req, res) => {
 
       if (rows.length > 0) {
         const userId = rows[0].id;
-
-        // Insert clock-in (if not already in today's schedule)
         await connection.execute(
           'INSERT INTO schedule (user_id, date, time_in) VALUES (?, CURDATE(), CURTIME())',
           [userId]
         );
-
         console.log(`✅ Clock-in recorded for user_id ${userId}`);
       } else {
         console.log(`⚠️ No user found with square_id ${teamMemberId}`);
@@ -76,8 +71,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-
-// ➤ Webhook: New Employee Added from Square
+// ➤ Webhook for new employee from Square
 app.post('/webhook', async (req, res) => {
   const data = req.body;
   fs.appendFileSync('new_employee_webhook_log.txt', JSON.stringify(data, null, 2) + '\n');
@@ -92,8 +86,6 @@ app.post('/webhook', async (req, res) => {
       const squareId = teamMember.id;
 
       const connection = await mysql.createConnection(dbConfig);
-
-      // Check if user already exists
       const [existing] = await connection.execute(
         'SELECT id FROM users WHERE square_id = ?',
         [squareId]
