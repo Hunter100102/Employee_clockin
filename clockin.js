@@ -44,7 +44,7 @@ app.post("/webhook", async (req, res) => {
     ) {
       // ✅ Step 1: Check user existence on InfinityFree
       const checkRes = await axios.post(
-        "https://hookahbar.unaux.com/check_user.php",
+        "https://lightsteelblue-chough-952226.hostingersite.com/check_user.php",
         {
           square_id: teamMemberId,
         }
@@ -55,7 +55,7 @@ app.post("/webhook", async (req, res) => {
 
         // ✅ Step 2: Insert clock-in remotely on InfinityFree
         const insertRes = await axios.post(
-          "https://hookahbar.unaux.com/insert_clockin.php",
+          "https://lightsteelblue-chough-952226.hostingersite.com/insert_clockin.php",
           {
             user_id: userId,
           }
